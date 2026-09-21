@@ -1,20 +1,15 @@
 services:
   mongodb:
     image: mongo:8
+    cpus: 1.0
+    mem_limit: 768m
     ports:
       - 27017:27017
     environment:
       MONGO_INITDB_ROOT_USERNAME: betor
       MONGO_INITDB_ROOT_PASSWORD: betor
     healthcheck:
-      test:
-        - CMD
-        - echo
-        - 'db.runCommand("ping").ok'
-        - "|"
-        - mongosh
-        - localhost:27017/test
-        - --quiet
+      test: ["CMD-SHELL", "test \"$$(mongosh --quiet --username $$MONGO_INITDB_ROOT_USERNAME --password $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 }).ok')\" = \"1\""]
       interval: 5s
       timeout: 10s
       retries: 5
@@ -22,6 +17,8 @@ services:
 
   mongo-express:
     image: mongo-express:1
+    cpus: 0.25
+    mem_limit: 128m
     ports:
       - 8081:8081
     depends_on:
@@ -35,15 +32,17 @@ services:
 
   redis:
     image: redis:8
+    cpus: 0.25
+    mem_limit: 128m
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - 6379:6379
+    volumes:
+      - type: bind
+        source: E:/Betor/redis
+        target: /data
     healthcheck:
-      test:
-        - CMD
-        - redis-cli
-        - --raw
-        - incr
-        - ping
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 10s
       retries: 5
@@ -51,6 +50,8 @@ services:
 
   influxdb:
     image: influxdb:3-core
+    cpus: 0.75
+    mem_limit: 512m
     ports:
       - 8181:8181
     command:
@@ -60,9 +61,18 @@ services:
       - --object-store=file
       - --data-dir=/var/lib/influxdb3/data
       - --plugin-dir=/var/lib/influxdb3/plugins
+    volumes:
+      - type: bind
+        source: E:/Betor/influxdb/data
+        target: /var/lib/influxdb3/data
+      - type: bind
+        source: E:/Betor/influxdb/plugins
+        target: /var/lib/influxdb3/plugins
 
   grafana:
     image: grafana/grafana:latest
+    cpus: 0.5
+    mem_limit: 256m
     ports:
       - 3000:3000
     volumes:
@@ -72,12 +82,16 @@ services:
 
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
+    cpus: 0.75
+    mem_limit: 512m
 
   celery-worker-items:
     image: dougppaz/betor
+    cpus: 0.75
+    mem_limit: 512m
     build:
       context: .
-    command: ["celery", "-A", "betor.celery.app", "worker", "-Q", "items"]
+    command: ["celery", "-A", "betor.celery.app", "worker", "-Q", "items", "--concurrency=2"]
     depends_on:
       redis:
         condition: service_healthy
@@ -87,9 +101,11 @@ services:
 
   celery-worker-api-requests:
     image: dougppaz/betor
+    cpus: 0.5
+    mem_limit: 384m
     build:
       context: .
-    command: ["celery", "-A", "betor.celery.app", "worker", "-Q", "api-requests"]
+    command: ["celery", "-A", "betor.celery.app", "worker", "-Q", "api-requests", "--concurrency=2"]
     depends_on:
       redis:
         condition: service_healthy
@@ -98,9 +114,11 @@ services:
 
   celery-worker-torrents:
     image: dougppaz/betor
+    cpus: 0.5
+    mem_limit: 384m
     build:
       context: .
-    command: ["celery", "-A", "betor.celery.app", "worker", "-Q", "torrents"]
+    command: ["celery", "-A", "betor.celery.app", "worker", "-Q", "torrents", "--concurrency=1"]
     depends_on:
       redis:
         condition: service_healthy
@@ -109,13 +127,17 @@ services:
     ports:
       - 6881:6881
     volumes:
-      - torrents:/torrents
+      - type: bind
+        source: E:/Betor/torrents
+        target: /torrents
 
   celery-flower:
     image: dougppaz/betor
+    cpus: 0.25
+    mem_limit: 192m
     build:
       context: .
-    command: ["celery", "-A", "betor.celery.app", "flower"]
+    command: ["celery", "-A", "betor.celery.app", "flower", "--persistent=True", "--db=/var/lib/flower/flower"]
     depends_on:
       redis:
         condition: service_healthy
@@ -123,9 +145,15 @@ services:
       - .docker.env
     ports:
       - 5555:5555
+    volumes:
+      - type: bind
+        source: E:/Betor/flower
+        target: /var/lib/flower
 
   scrapyd:
     image: dougppaz/betor
+    cpus: 0.75
+    mem_limit: 512m
     build:
       context: .
     command: ["scrapyd"]
@@ -145,6 +173,8 @@ services:
 
   betor-api:
     image: dougppaz/betor
+    cpus: 0.75
+    mem_limit: 384m
     build:
       context: .
     command: ["fastapi", "run", "betor/api/app.py"]
@@ -164,6 +194,8 @@ services:
 
   nginx:
     image: nginx:latest
+    cpus: 0.25
+    mem_limit: 64m
     ports:
       - 8001:80
     volumes:
