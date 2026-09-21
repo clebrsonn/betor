@@ -1,4 +1,3 @@
-import base64
 from typing import Dict, Optional
 
 import motor.motor_asyncio
@@ -8,6 +7,7 @@ from scrapeer import Scraper
 from betor.entities import TorrentTrackersInfo
 from betor.exceptions import TorrentTrackersInfoNotFound
 from betor.repositories import ItemsRepository
+from betor.utils import extract_magnet_info_hash
 
 
 class UpdateItemTorrentTrackersInfoService:
@@ -20,6 +20,7 @@ class UpdateItemTorrentTrackersInfoService:
         await self.items_repository.update_torrent_trackers_info(
             magnet_uri, torrent_trackers_info
         )
+        await self.items_repository.maintain_torrent_health(magnet_uri)
         return torrent_trackers_info
 
     def get_best_torrent_tracker_info(
@@ -29,6 +30,7 @@ class UpdateItemTorrentTrackersInfoService:
         trackers = set(
             list(magnet.tr)
             + [
+                "udp://tracker.opentrackr.org:1337/announce",
                 "udp://open.stealth.si:80/announce",
                 "udp://tracker-udp.gbitt.info:80/announce",
                 "http://ipv4announce.sktorrent.eu:6969/announce",
@@ -38,24 +40,23 @@ class UpdateItemTorrentTrackersInfoService:
         )
         for tracker in trackers:
             results = self.scraper.scrape(
-                hashes=[magnet.infohash],
+                hashes=[magnet.infohash, magnet.infohash.lower()],
                 trackers=[tracker],
-                timeout=15,
+                timeout=5,
             )
-            r = results.get(magnet.infohash, {})
+            r = results.get(magnet.infohash, {}) or results.get(
+                magnet.infohash.lower(), {}
+            )
+            print(f"Tracker: {tracker}, Result: {r}")
             if not result or r.get("seeders", 0) > result.get("seeders", 0):
                 result = r
         return result
 
     def get_torrent_trackers_info(self, magnet_uri: str) -> TorrentTrackersInfo:
         magnet = torf.Magnet.from_string(magnet_uri)
-        if not len(magnet.infohash) == 40:
-            try:
-                magnet.infohash = base64.b32decode(
-                    magnet.infohash.upper() + "=" * ((8 - len(magnet.infohash) % 8) % 8)
-                ).hex()
-            except:  # noqa: E722
-                pass
+        parsed_info_hash = extract_magnet_info_hash(magnet_uri)
+        if parsed_info_hash:
+            magnet.infohash = parsed_info_hash
         result = self.get_best_torrent_tracker_info(magnet)
         if not result:
             raise TorrentTrackersInfoNotFound(
