@@ -7,7 +7,7 @@ type: public
 encoding: UTF-8
 links:
   - http://localhost:8000
-  - http://betor:8000
+  - http://betor-api:8000  # 🔴 FIX: era "betor", mas o serviço no docker-compose se chama "betor-api"
 
 caps:
   categories:
